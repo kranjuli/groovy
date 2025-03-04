@@ -1,0 +1,97 @@
+import java.net.HttpURLConnection
+import java.net.URL
+
+import org.apache.log4j.Logger
+import org.apache.log4j.Level
+
+import com.atlassian.confluence.pages.Page
+import com.atlassian.confluence.pages.PageManager
+import com.atlassian.sal.api.component.ComponentLocator
+import com.atlassian.confluence.spaces.Space
+import com.atlassian.confluence.spaces.SpaceManager
+import com.atlassian.confluence.links.OutgoingLink
+
+// setup logging
+def currentLogLevel = log.getLevel()
+def scriptLogLevel = Level.INFO
+log.setLevel(scriptLogLevel)
+
+SpaceManager spaceManager = ComponentLocator.getComponent(SpaceManager)
+PageManager pageManager = ComponentLocator.getComponent(PageManager)
+LabelManager labelManager = ContainerManager.getComponent(LabelManager)
+
+// space of STVIT
+def space = spaceManager.getSpace('ST')
+// "archiv" main page (ID = 277283121)
+Page archivMainPage = pageManager.getPage(277283121)
+// page to display broken link (ID = 322176515)
+Page brokenLinksPage = pageManager.getPage(322176515)
+// List of broken link with
+List<Map<String, String>> brokenLinks = []
+
+// get all pages in space STVIT
+List<Page> pages = pageManager.getPages(space, true)
+
+//process pages in a loop
+pages.each{ page ->
+    if (!page.getAncestors().contains(archivMainPage)) {
+        // get all links on page
+        def extractedLinks = page.getBodyContent().getContent().getOutgoingLinks()
+        if (extractedLinks.size() > 0) {
+            // check each extracted link
+            extractedLinks.each{ OutgoingLink link ->
+                // if url link
+                if (link.isUrlLink()) {
+                    // check if url is broken
+                    if (!link.getUrlLink().contains("mailto") && isUrlBroken(link.getUrlLink()) {
+                        brokenLinks.add([page: page.getTitle(), link: link.getUrlLink()])
+                    }
+                } else {
+                    // check confluence page
+                    try {
+                        linkedConfluencePage = pageManager.getPage(space, link.getDestinationPageTitle())
+                    } catch (Exception e) {
+                        log.error (e.message)
+                        brokenLinks.add([page: page.getTitle(), link: link.getDestinationPageTitle()])
+                    }
+                }
+            }
+        }
+    }
+}
+
+String brokenLinksTable = "|| Seite || toter Link ||\n"
+if (brokenLinks.size() > 0) {
+    brokenLinks.each { brokenLink ->
+        brokenLinksTable += "|brokenLink.page | brokenLink.link|\n"
+    }
+}
+
+// insert table of broken links to broken link Page
+brokenLinksPage.setBodyAsString(pageContent)
+//save page
+pageManager.saveContentEntity(brokenLinksPage, null, null)
+
+// function to check if url is broken
+def isUrlBroken(OutgoingLink link) {
+    try {
+        URL url = new URL(urlString)
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection()
+        // "HEAD" request to increase speed
+        connection.setRequestMethod("HEAD")
+        // connection timeout in ms
+        connection.setConnectTimeout(5000)
+        // read timeout in ms
+        connection.setReadTimeout(5000)
+        connection.connect()
+
+        int responseCode = connection.getResponseCode()
+        if (responseCode >= 200 && responseCode < 400) {
+            return false
+        } else {
+            return true
+        }
+    } catch (Exception e) {
+        return "Error: ${e.message}"
+    }
+}
